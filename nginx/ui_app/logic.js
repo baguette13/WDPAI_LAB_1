@@ -2,9 +2,11 @@ const url = "http://localhost:8000";
 
 async function getItems() {
   try {
-    const res = await axios.get(url);
-    console.log(res)
-    const users = res.data.user_list;
+    const res = await fetch(url, { method: "GET" });
+    if (!res.ok) throw new Error("Network response was not ok");
+
+    const data = await res.json();
+    const users = data.user_list;
     displayUsers(users);
   } catch (error) {
     console.log(error);
@@ -42,7 +44,6 @@ function displayUsers(users) {
     iconSpan.textContent = "delete";
     deleteButton.appendChild(iconSpan);
 
-
     infosDiv.appendChild(nameDiv);
     infosDiv.appendChild(functionDiv);
     wrapper.appendChild(infosDiv);
@@ -65,8 +66,17 @@ async function addUser(e) {
   };
 
   try {
-    const res = await axios.post(url, user);
-    const users = res.data.user_list;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(user),
+    });
+    if (!res.ok) throw new Error("Network response was not ok");
+
+    const data = await res.json();
+    const users = data.user_list;
     displayUsers(users);
   } catch (error) {
     console.log(error);
@@ -75,9 +85,17 @@ async function addUser(e) {
 
 async function deleteUser(userId) {
   try {
-    const res = await axios.delete(url, { data: { id: userId } });
+    const res = await fetch(url, {
+      method: "DELETE",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: userId }),
+    });
+    if (!res.ok) throw new Error("Network response was not ok");
 
-    const users = res.data.user_list;
+    const data = await res.json();
+    const users = data.user_list;
     displayUsers(users);
   } catch (error) {
     console.log(error);
