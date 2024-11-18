@@ -1,21 +1,38 @@
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Type
+import psycopg2
+import os
+import time
 
+DB_HOST = os.environ.get('DB_HOST', 'postgres')
+DB_PORT = int(os.environ.get('DB_PORT', 5432))
+DB_NAME = os.environ.get('DB_NAME', 'mydatabase')
+DB_USER = os.environ.get('DB_USER', 'dbuser')
+DB_PASSWORD = os.environ.get('DB_PASSWORD', 'dbpassword')
+
+def connect_to_db():
+    while True:
+        try:
+            conn = psycopg2.connect(
+                host=DB_HOST,
+                port=DB_PORT,
+                dbname=DB_NAME,
+                user=DB_USER,
+                password=DB_PASSWORD
+            )
+            print("Połączono z bazą danych")
+            return conn
+        except psycopg2.OperationalError:
+            print("Błąd połączenia z bazą danych, ponawianie za 5 sekund...")
+            time.sleep(5)
+
+conn = connect_to_db()
+cursor = conn.cursor()
 
 # Define the request handler class by extending BaseHTTPRequestHandler.
 # This class will handle HTTP requests that the server receives.
 class SimpleRequestHandler(BaseHTTPRequestHandler):
-
-    user_list = [{
-        'first_name': 'Kacper',
-        'last_name': 'Wietecha',
-        'role': 'CEO',
-        'id': 1
-    }]
-
-    last_id = 1
-
     # Handle OPTIONS requests (used in CORS preflight checks).
     # CORS (Cross-Origin Resource Sharing) is a mechanism that allows restricted resources
     # on a web page to be requested from another domain outside the domain from which the resource originated.
@@ -50,18 +67,34 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
 
         # Finish sending headers
         self.end_headers()
-
+        
+        self.user_list = self.get_users()
         # Prepare the response data, which will be returned in JSON format.
         # The response contains a simple message and the path of the request.
         response: dict = {
             "message": "User list",
             "user_list": self.user_list
         }
-
         # Convert the response dictionary to a JSON string and send it back to the client.
         # `self.wfile.write()` is used to send the response body.
         self.wfile.write(json.dumps(response).encode())
 
+    def get_users(self):
+        try:
+            cursor.execute("SELECT id,first_name,last_name,role FROM users")
+            rows = cursor.fetchall()
+
+            users = [{
+                "id": row[0],
+                "first_name": row[1],
+                "last_name": row[2],
+                "role": row[3]
+            } for row in rows]
+            return users
+
+        except Exception as e:
+            print("Error:", e)
+            return []
     # Handle POST requests.
     # This method is called when the client sends a POST request.
     def do_POST(self) -> None:
@@ -75,28 +108,40 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
         # Decode the received byte data and parse it as JSON.
         # We expect the POST request body to contain JSON-formatted data.
         received_data: dict = json.loads(post_data.decode())
+
         new_user = received_data
-        SimpleRequestHandler.last_id += 1
-        new_user['id'] = SimpleRequestHandler.last_id
-        self.user_list.append(received_data)
+        first_name = new_user.get("first_name")
+        last_name = new_user.get("last_name")
+        role = new_user.get("role")
+
+        try:
+            cursor.execute("INSERT INTO users (first_name,last_name,role) VALUES (%s,%s,%s)",
+                (first_name,last_name,role)
+            )
+            conn.commit()
+            print("User added")
+
+            self.user_list = self.get_users()
+
+        except Exception as e:
+            print("Error:", e)
+            self.send_response(500)
+            self.end_headers()
+            return
         # Prepare the response data.
         # It includes a message indicating it's a POST request and the data we received from the client.
         response: dict = {
             "message": "Item added",
             "user_list": self.user_list 
         }
-
         # Send the response headers.
         # Set the status to 200 OK and indicate the response content will be in JSON format.
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
-
         # Again, allow any origin to access this resource (CORS header).
         self.send_header('Access-Control-Allow-Origin', '*')
-
         # Finish sending headers.
         self.end_headers()
-
         # Convert the response dictionary to a JSON string and send it back to the client.
         self.wfile.write(json.dumps(response).encode())
 
@@ -107,7 +152,16 @@ class SimpleRequestHandler(BaseHTTPRequestHandler):
 
         user_id = received_data.get('id')
 
-        SimpleRequestHandler.user_list = [user for user in self.user_list if user['id'] != user_id]
+        try:
+            cursor.execute("DELETE FROM users WHERE id=%s", (user_id,))
+            conn.commit()
+            print("Delete user")
+            self.user_list = self.get_users()
+        except Exception as e:
+            print("Error:", e)
+            self.send_response(500)
+            self.end_headers()
+            return            
 
         response: dict = {
             "message": "Item deleted",
